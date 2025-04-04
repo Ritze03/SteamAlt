@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SteamAlt - Steam Userdata Copier</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+</head>
+<body>
+    <header>
+        <div class="container">
+            <h1>SteamAlt</h1>
+            <p>Copy Steam userdata between accounts with ease</p>
+        </div>
+    </header>
+
+    <main class="container">
+        <section class="intro">
+            <div class="screenshot-container">
+                <img src="screenshot.png" alt="SteamAlt Screenshot" class="screenshot">
+            </div>
+            <div class="description">
+                <h2>What is SteamAlt?</h2>
+                <p>
+                    SteamAlt is a simple GUI tool that allows you to copy game data (saves, settings, etc.) 
+                    between different Steam accounts on the same computer. This is particularly useful when:
+                </p>
+                <ul>
+                    <li>You have multiple Steam accounts</li>
+                    <li>You want to transfer game progress to a new account</li>
+                    <li>You need to sync settings between accounts</li>
+                </ul>
+            </div>
+        </section>
+
+        <section class="features">
+            <h2>Features</h2>
+            <div class="features-grid">
+                <div class="feature-card">
+                    <i class="fas fa-user-friends"></i>
+                    <h3>Account Switching</h3>
+                    <p>Easily select source and destination accounts from detected Steam profiles</p>
+                </div>
+                <div class="feature-card">
+                    <i class="fas fa-images"></i>
+                    <h3>Avatar Preview</h3>
+                    <p>Visual confirmation with profile avatars to prevent mistakes</p>
+                </div>
+                <div class="feature-card">
+                    <i class="fas fa-shield-alt"></i>
+                    <h3>Safety Checks</h3>
+                    <p>Automatically detects running Steam client and warns before overwriting data</p>
+                </div>
+            </div>
+        </section>
+
+        <section class="tutorial">
+            <h2>How to Use</h2>
+            <div class="steps">
+                <div class="step">
+                    <div class="step-number">1</div>
+                    <div class="step-content">
+                        <h3>Download and Run</h3>
+                        <p>Download the latest release from GitHub and run the executable</p>
+                        <a href="https://github.com/Ritze03/SteamAlt/releases" class="button">Download Now</a>
+                    </div>
+                </div>
+                <div class="step">
+                    <div class="step-number">2</div>
+                    <div class="step-content">
+                        <h3>Select Accounts</h3>
+                        <p>Choose your source account (where data is copied from) and destination account (where data is copied to)</p>
+                    </div>
+                </div>
+                <div class="step">
+                    <div class="step-number">3</div>
+                    <div class="step-content">
+                        <h3>Confirm and Copy</h3>
+                        <p>Review the confirmation dialog and proceed. SteamAlt will handle the rest!</p>
+                        <p class="note">Note: Steam should be closed during this process for best results.</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section class="faq">
+            <h2>Frequently Asked Questions</h2>
+            <div class="faq-item">
+                <h3 class="faq-question">Is this safe to use?</h3>
+                <div class="faq-answer">
+                    <p>Yes, SteamAlt only copies files between Steam userdata folders and doesn't modify any Steam system files. However:</p>
+                    <ul>
+                        <li>Always back up important data before making changes</li>
+                        <li>Close Steam before running the tool</li>
+                        <li>Make sure you've selected the correct accounts</li>
+                    </ul>
+                </div>
+            </div>
+            <div class="faq-item">
+                <h3 class="faq-question">What data gets copied?</h3>
+                <div class="faq-answer">
+                    <p>SteamAlt copies all numeric folders in the userdata directory, which typically includes:</p>
+                    <ul>
+                        <li>Game save files</li>
+                        <li>Configuration files</li>
+                        <li>Some game-specific data</li>
+                    </ul>
+                    <p>It does not copy Steam account credentials or login information.</p>
+                </div>
+            </div>
+            <div class="faq-item">
+                <h3 class="faq-question">The tool can't find my Steam userdata folder</h3>
+                <div class="faq-answer">
+                    <p>If SteamAlt can't automatically detect your Steam installation:</p>
+                    <ol>
+                        <li>Click "Cancel" on the error message</li>
+                        <li>You'll be prompted to manually select your userdata folder</li>
+                        <li>Navigate to where Steam is installed (typically in Program Files or AppData)</li>
+                        <li>Select the "userdata" folder</li>
+                    </ol>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <footer>
+        <div class="container">
+            <p>SteamAlt is an open source project created by Ritze03</p>
+            <div class="footer-links">
+                <a href="https://github.com/Ritze03/SteamAlt" target="_blank"><i class="fab fa-github"></i> GitHub</a>
+                <a href="https://github.com/Ritze03/SteamAlt/issues" target="_blank"><i class="fas fa-bug"></i> Report an Issue</a>
+            </div>
+        </div>
+    </footer>
+</body>
+</html>
