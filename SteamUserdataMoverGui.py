@@ -16,7 +16,10 @@ STEAM_USERDATA_PATH = ""
 default_paths = [
     r"C:\Program Files (x86)\Steam\userdata",
     os.path.expanduser(r"~\AppData\Local\Steam\userdata"),
-    os.path.expanduser(r"~\.steam\steam\userdata")
+    os.path.expanduser(r"~\.steam\steam\userdata"),
+    os.path.expanduser(r"~/.local/share/Steam/userdata"),
+    os.path.expanduser(r"~/.var/app/com.valvesoftware.Steam/.local/share/Steam/userdata"),
+    os.path.expanduser(r"~/.var/app/com.valvesoftware.Steam/data/Steam/userdata")
 ]
 
 for path in default_paths:
