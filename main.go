@@ -1,0 +1,35 @@
+package main
+
+import (
+	"log"
+	"os"
+
+	"gioui.org/app"
+	"gioui.org/op"
+	"gioui.org/unit"
+)
+
+func main() {
+	go func() {
+		w := new(app.Window)
+		w.Option(app.Title("SteamAlt"), app.Size(unit.Dp(520), unit.Dp(760)))
+		if err := run(w); err != nil {
+			log.Fatal(err)
+		}
+		os.Exit(0)
+	}()
+	app.Main()
+}
+
+func run(w *app.Window) error {
+	var ops op.Ops
+	for {
+		switch e := w.Event().(type) {
+		case app.DestroyEvent:
+			return e.Err
+		case app.FrameEvent:
+			ops.Reset()
+			e.Frame(&ops)
+		}
+	}
+}
