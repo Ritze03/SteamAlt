@@ -3,4 +3,4 @@ Type=Application
 Name=Steam Userdata Mover
 Comment=Copy Steam game saves and settings between accounts on one PC
 Exec=SteamAlt
-Categories=Game;Utility;
+Categories=Utility;

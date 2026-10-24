@@ -44,7 +44,8 @@ build() {
 	echo "installing requirements (needs network)"
 	"build/$new/bin/python" -m pip install --no-color --disable-pip-version-check --progress-bar off -q -r requirements.txt \
 		|| { rm -rf "build/$new"; exit 1; }
-	ln -s "$new" build/venv.new && mv -fT build/venv.new build/venv
+	ln -sfn "$new" build/venv.new
+	mv -fT build/venv.new build/venv
 	for d in build/venv-*; do
 		[ -e "$d" ] || continue
 		case ${d#build/} in "$new"|"$prev") ;; *) rm -rf "$d" ;; esac
