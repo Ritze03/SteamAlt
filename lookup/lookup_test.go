@@ -276,15 +276,44 @@ func TestCorruptCacheTreatedAsEmpty(t *testing.T) {
 	}
 }
 
-func TestCancelledContextGivesFallbacks(t *testing.T) {
+func TestCancelledContextGivesNoCallbacks(t *testing.T) {
 	var hits atomic.Int32
 	srv := storeServer(t, map[string]string{"620": "Portal 2"}, &hits)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	col := newCollector()
-	newClient(t, t.TempDir(), srv.URL).Names(ctx, []string{"620"}, nil, col.on)
-	if col.names["620"] != "App 620" || col.calls["620"] != 1 || hits.Load() != 0 {
-		t.Fatalf("name=%q calls=%d hits=%d", col.names["620"], col.calls["620"], hits.Load())
+	newClient(t, t.TempDir(), srv.URL).Names(ctx, []string{"620", "730"}, nil, col.on)
+	if len(col.calls) != 0 || hits.Load() != 0 {
+		t.Fatalf("calls=%v hits=%d, want no callbacks and no requests after cancel", col.calls, hits.Load())
+	}
+}
+
+// A cancel while requests are in flight must not turn them into fallback callbacks.
+func TestCancelInFlightGivesNoFallbacks(t *testing.T) {
+	started := make(chan struct{}, 8)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		started <- struct{}{}
+		<-r.Context().Done() // hang until the client gives up
+	}))
+	t.Cleanup(srv.Close)
+	ctx, cancel := context.WithCancel(context.Background())
+	col := newCollector()
+	done := make(chan struct{})
+	go func() {
+		newClient(t, t.TempDir(), srv.URL).Names(ctx, []string{"1", "2", "3", "4", "5", "6"}, nil, col.on)
+		close(done)
+	}()
+	<-started
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("Names did not return after cancel")
+	}
+	col.mu.Lock()
+	defer col.mu.Unlock()
+	if len(col.calls) != 0 {
+		t.Fatalf("callbacks after cancel: %v", col.calls)
 	}
 }
 
@@ -395,5 +424,24 @@ func TestAvatarCorruptCacheRefetched(t *testing.T) {
 	}
 	if hits.Load() != 1 {
 		t.Fatalf("hits=%d", hits.Load())
+	}
+}
+
+func TestAvatarOversizedRejected(t *testing.T) {
+	big := image.NewRGBA(image.Rect(0, 0, maxAvatarPx+1, 8)) // solid: a tiny file, a big image
+	var buf bytes.Buffer
+	if err := jpeg.Encode(&buf, big, nil); err != nil {
+		t.Fatal(err)
+	}
+	var hits atomic.Int32
+	srv := avatarServer(t, buf.Bytes(), &hits)
+	dir := t.TempDir()
+	c := New(dir)
+	c.AvatarURL = srv.URL + "/"
+	if _, err := c.Avatar(context.Background(), testHash); err == nil || !strings.Contains(err.Error(), "exceeds") {
+		t.Fatalf("err = %v, want a size rejection", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "avatars", testHash+".jpg")); err == nil {
+		t.Fatal("oversized avatar must not be cached")
 	}
 }

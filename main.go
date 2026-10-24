@@ -41,6 +41,9 @@ func run(w *app.Window) error {
 	for {
 		switch e := w.Event().(type) {
 		case app.DestroyEvent:
+			// Gio cannot veto a close: stop a running copy and let it clean up its
+			// .steamalt-tmp-<id> folder before the process exits.
+			a.Shutdown()
 			return e.Err
 		case app.FrameEvent:
 			gtx := app.NewContext(&ops, e)

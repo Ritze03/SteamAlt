@@ -68,6 +68,9 @@ func button(gtx layout.Context, th *Theme, kind buttonKind, c *widget.Clickable,
 			border = SELBD
 		}
 		if !enabled {
+			if kind == kindPrimary {
+				txt = TEXT // dark text on the dimmed accent fill is unreadable; light text stays legible
+			}
 			fill, border, txt = fade(fill, .4), fade(border, .4), fade(txt, .4)
 		}
 		lab, ld := measure(gtx, func(gtx layout.Context) layout.Dimensions {
@@ -165,6 +168,7 @@ func CheckRow(gtx layout.Context, th *Theme, b *widget.Bool, it CheckItem) layou
 			}
 			if it.Warn != "" {
 				children = append(children,
+					layout.Rigid(layout.Spacer{Width: Gap}.Layout), // keeps an ellipsised name off the badge
 					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 						return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
 							layout.Rigid(func(gtx layout.Context) layout.Dimensions {
@@ -314,6 +318,9 @@ type DropdownItem struct {
 type Dropdown struct {
 	Items    []DropdownItem
 	Selected int
+	// Placeholder marks Items[0] as a "none selected" entry: its text is drawn DIM,
+	// in the list and in the closed control, and indexes keep counting from it.
+	Placeholder bool
 
 	open    bool
 	changed bool
@@ -428,7 +435,11 @@ func (d *Dropdown) layoutHead(gtx layout.Context, th *Theme, w int) layout.Dimen
 		if d.Selected >= 0 && d.Selected < len(d.Items) {
 			it = d.Items[d.Selected]
 		}
-		txt, td := measure(in, func(gtx layout.Context) layout.Dimensions { return accountLine(gtx, th, it, TEXT) })
+		col := TEXT
+		if d.Placeholder && d.Selected == 0 {
+			col = DIM
+		}
+		txt, td := measure(in, func(gtx layout.Context) layout.Dimensions { return accountLine(gtx, th, it, col) })
 		h := max(td.Size.Y+2*padY, gtx.Dp(ControlH))
 		size := image.Pt(w, h)
 		rect := image.Rectangle{Max: size}
@@ -502,7 +513,11 @@ func (d *Dropdown) layoutRow(gtx layout.Context, th *Theme, i, rowH int) layout.
 		in := gtx
 		in.Constraints.Min = image.Point{}
 		in.Constraints.Max.X = max(0, size.X-2*padX)
-		m, md := measure(in, func(gtx layout.Context) layout.Dimensions { return accountLine(gtx, th, d.Items[i], TEXT) })
+		col := TEXT
+		if d.Placeholder && i == 0 {
+			col = DIM
+		}
+		m, md := measure(in, func(gtx layout.Context) layout.Dimensions { return accountLine(gtx, th, d.Items[i], col) })
 		st := op.Offset(image.Pt(padX, (rowH-md.Size.Y)/2)).Push(gtx.Ops)
 		m.Add(gtx.Ops)
 		st.Pop()
@@ -697,6 +712,11 @@ func Fill(gtx layout.Context, c color.NRGBA) layout.Dimensions {
 
 // ---- Modal ------------------------------------------------------------------
 
+// scrim is the modal backdrop. SCRIM (55 % black) is the mockup's CSS value, but
+// Gio blends in linear light, where 55 % black only dims white to about 69 % of
+// its sRGB brightness. 0xD4 (83 %) lands on the mockup's 45 % remaining.
+var scrim = color.NRGBA{0, 0, 0, 0xD4}
+
 // Modal is a dialog over a dimmed backdrop. Set the exported fields each frame,
 // call Update, then (last in the frame) Layout.
 //
@@ -762,7 +782,7 @@ func (m *Modal) Layout(gtx layout.Context, th *Theme, body layout.Widget) layout
 	g := gtx
 	g.Constraints = layout.Exact(win)
 	m.backdrop.Layout(g, func(gtx layout.Context) layout.Dimensions {
-		fillRect(gtx, image.Rectangle{Max: win}, SCRIM)
+		fillRect(gtx, image.Rectangle{Max: win}, scrim)
 		return layout.Dimensions{Size: win}
 	})
 	layout.Center.Layout(g, func(gtx layout.Context) layout.Dimensions { return m.panel(gtx, th, body) })
