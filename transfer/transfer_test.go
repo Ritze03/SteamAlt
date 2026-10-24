@@ -349,3 +349,141 @@ func TestFakeAndWaitClosed(t *testing.T) {
 		t.Errorf("WaitClosed timeout err = %v", err)
 	}
 }
+
+// failRenames replaces rename so that the calls numbered in failOn (1-based)
+// fail; the others go through to os.Rename.
+func failRenames(t *testing.T, failOn ...int) {
+	t.Helper()
+	orig := rename
+	n := 0
+	rename = func(a, b string) error {
+		n++
+		for _, f := range failOn {
+			if n == f {
+				return errors.New("injected rename failure")
+			}
+		}
+		return os.Rename(a, b)
+	}
+	t.Cleanup(func() { rename = orig })
+}
+
+func TestSwapRollsBackWhenFinalRenameFails(t *testing.T) {
+	root := t.TempDir()
+	src, dst := filepath.Join(root, "src"), filepath.Join(root, "dst")
+	write(t, filepath.Join(src, "5", "new.txt"), "new", 0o644)
+	write(t, filepath.Join(dst, "5", "old.txt"), "old", 0o644)
+	failRenames(t, 2) // 1: final->old, 2: tmp->final (fails), 3: rollback old->final
+
+	errs := Copy(context.Background(), src, dst, []string{"5"}, nil)
+	if errs["5"] == nil {
+		t.Fatal("expected the injected failure to be reported")
+	}
+	if got := read(t, filepath.Join(dst, "5", "old.txt")); got != "old" {
+		t.Error("old data not restored after failed swap")
+	}
+	if exists(filepath.Join(dst, "5", "new.txt")) {
+		t.Error("new data leaked into restored folder")
+	}
+	noTmpLeft(t, dst)
+	if exists(filepath.Join(dst, oldPrefix+"5")) {
+		t.Error("old folder left behind after rollback")
+	}
+}
+
+func TestSwapKeepsBothWhenRollbackFails(t *testing.T) {
+	root := t.TempDir()
+	src, dst := filepath.Join(root, "src"), filepath.Join(root, "dst")
+	write(t, filepath.Join(src, "5", "new.txt"), "new", 0o644)
+	write(t, filepath.Join(dst, "5", "old.txt"), "old", 0o644)
+	failRenames(t, 2, 3)
+
+	errs := Copy(context.Background(), src, dst, []string{"5"}, nil)
+	err := errs["5"]
+	if err == nil {
+		t.Fatal("expected an error")
+	}
+	oldDir, tmpDir := filepath.Join(dst, oldPrefix+"5"), filepath.Join(dst, tmpPrefix+"5")
+	if !strings.Contains(err.Error(), oldDir) || !strings.Contains(err.Error(), tmpDir) {
+		t.Errorf("error does not name where the data is: %v", err)
+	}
+	if read(t, filepath.Join(oldDir, "old.txt")) != "old" || read(t, filepath.Join(tmpDir, "new.txt")) != "new" {
+		t.Error("old or new data lost")
+	}
+}
+
+func TestCopySweepsLeftovers(t *testing.T) {
+	root := t.TempDir()
+	src, dst := filepath.Join(root, "src"), filepath.Join(root, "dst")
+	write(t, filepath.Join(src, "1", "f"), "f", 0o644)
+	write(t, filepath.Join(dst, tmpPrefix+"5", "junk"), "junk", 0o644)
+	write(t, filepath.Join(dst, oldPrefix+"6", "junk"), "junk", 0o644)
+	write(t, filepath.Join(dst, "6", "cur"), "cur", 0o644)
+	write(t, filepath.Join(dst, oldPrefix+"7", "precious"), "precious", 0o644)
+	write(t, filepath.Join(dst, "8", "other"), "other", 0o644)
+	write(t, filepath.Join(dst, ".steamalt-other", "x"), "x", 0o644)
+
+	if errs := Copy(context.Background(), src, dst, []string{"1"}, nil); errs != nil {
+		t.Fatal(errs)
+	}
+	if exists(filepath.Join(dst, tmpPrefix+"5")) {
+		t.Error("stale tmp not removed")
+	}
+	if exists(filepath.Join(dst, oldPrefix+"6")) || read(t, filepath.Join(dst, "6", "cur")) != "cur" {
+		t.Error("stale old next to existing id not removed, or id damaged")
+	}
+	if exists(filepath.Join(dst, oldPrefix+"7")) || read(t, filepath.Join(dst, "7", "precious")) != "precious" {
+		t.Error("old without id not restored")
+	}
+	if read(t, filepath.Join(dst, "8", "other")) != "other" || read(t, filepath.Join(dst, ".steamalt-other", "x")) != "x" {
+		t.Error("unrelated entries touched")
+	}
+}
+
+func TestShutdownCmd(t *testing.T) {
+	look := func(have ...string) func(string) (string, error) {
+		return func(name string) (string, error) {
+			for _, h := range have {
+				if h == name {
+					return "/fake/" + name, nil
+				}
+			}
+			return "", errors.New("not found")
+		}
+	}
+	cmd, err := shutdownCmd(look("steam", "flatpak"))
+	if err != nil || strings.Join(cmd.Args, " ") != "steam -shutdown" {
+		t.Errorf("steam on PATH: %v %v", cmd, err)
+	}
+	cmd, err = shutdownCmd(look("flatpak"))
+	if err != nil || strings.Join(cmd.Args, " ") != "flatpak run com.valvesoftware.Steam -shutdown" {
+		t.Errorf("flatpak only: %v %v", cmd, err)
+	}
+	if cmd, err = shutdownCmd(look()); err == nil || cmd != nil || !strings.Contains(err.Error(), "close Steam manually") {
+		t.Errorf("neither: %v %v", cmd, err)
+	}
+}
+
+func TestCopyFollowsSymlinkedAppFolder(t *testing.T) {
+	root := t.TempDir()
+	src, dst := filepath.Join(root, "src"), filepath.Join(root, "dst")
+	real := filepath.Join(root, "elsewhere", "game")
+	write(t, filepath.Join(real, "a.txt"), "A", 0o644)
+	write(t, filepath.Join(real, "sub", "b.txt"), "B", 0o644)
+	if err := os.MkdirAll(src, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(real, filepath.Join(src, "9")); err != nil {
+		t.Skip("symlinks unavailable:", err)
+	}
+	if errs := Copy(context.Background(), src, dst, []string{"9"}, nil); errs != nil {
+		t.Fatal(errs)
+	}
+	fi, err := os.Lstat(filepath.Join(dst, "9"))
+	if err != nil || !fi.IsDir() || fi.Mode()&fs.ModeSymlink != 0 {
+		t.Fatalf("dst/9 is not a real dir: %v %v", fi, err)
+	}
+	if read(t, filepath.Join(dst, "9", "a.txt")) != "A" || read(t, filepath.Join(dst, "9", "sub", "b.txt")) != "B" {
+		t.Error("contents not copied")
+	}
+}

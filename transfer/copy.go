@@ -11,17 +11,31 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
-const tmpPrefix = ".steamalt-tmp-"
+const (
+	tmpPrefix = ".steamalt-tmp-"
+	oldPrefix = ".steamalt-old-"
+)
+
+// rename is os.Rename; tests replace it to inject swap failures.
+var rename = os.Rename
+
+func pathExists(path string) bool {
+	_, err := os.Lstat(path)
+	return err == nil
+}
 
 // Copy copies each id from srcDir/<id> to dstDir/<id>, replacing whatever is
 // at dstDir/<id> (rmtree+copytree semantics). The source is never modified.
 //
 // Each id is first copied into the sibling dstDir/.steamalt-tmp-<id>; only
-// after that fully succeeds is dstDir/<id> removed and the copy renamed into
-// place. On error or cancel the tmp copy is removed and the existing
-// dstDir/<id> is left untouched.
+// after that fully succeeds is dstDir/<id> renamed to .steamalt-old-<id>, the
+// copy renamed into place and the old folder removed. On error or cancel the
+// existing dstDir/<id> is left untouched (restored if the swap fails midway).
+// A symlinked srcDir/<id> is followed and copied as a real folder. At the
+// start, leftovers of an interrupted run in dstDir are swept (see sweep).
 //
 // ids must be purely numeric (ASCII digits); anything else gets an error and
 // nothing is written. progress (may be nil) is called after every id that was
@@ -41,6 +55,9 @@ func Copy(ctx context.Context, srcDir, dstDir string, ids []string, progress fun
 		errs[id] = err
 	}
 	total := len(ids)
+	if total > 0 && ctx.Err() == nil && os.MkdirAll(dstDir, 0o755) == nil {
+		sweep(dstDir)
+	}
 	for i, id := range ids {
 		if err := ctx.Err(); err != nil {
 			for _, rest := range ids[i:] {
@@ -79,12 +96,15 @@ func copyOne(ctx context.Context, srcDir, dstDir, id string) (err error) {
 		return fmt.Errorf("invalid app id %q: must be numeric", id)
 	}
 	src := filepath.Join(srcDir, id)
-	fi, err := os.Lstat(src)
+	fi, err := os.Stat(src) // follows a symlinked app folder
 	if err != nil {
 		return err
 	}
 	if !fi.IsDir() {
 		return fmt.Errorf("%s is not a directory", src)
+	}
+	if src, err = filepath.EvalSymlinks(src); err != nil { // WalkDir does not follow a root symlink
+		return err
 	}
 	if err := os.MkdirAll(dstDir, 0o755); err != nil {
 		return err
@@ -93,8 +113,11 @@ func copyOne(ctx context.Context, srcDir, dstDir, id string) (err error) {
 	if err := os.RemoveAll(tmp); err != nil { // stale leftover from a crashed run
 		return err
 	}
+	// The tmp copy is only discarded while the old data is still untouched;
+	// once the swap has begun it may be the only complete copy left.
+	swapping := false
 	defer func() {
-		if err != nil {
+		if err != nil && !swapping {
 			os.RemoveAll(tmp)
 		}
 	}()
@@ -105,10 +128,55 @@ func copyOne(ctx context.Context, srcDir, dstDir, id string) (err error) {
 		return err
 	}
 	final := filepath.Join(dstDir, id)
-	if err := os.RemoveAll(final); err != nil {
+	old := filepath.Join(dstDir, oldPrefix+id)
+	if !pathExists(final) {
+		return rename(tmp, final)
+	}
+	if err := os.RemoveAll(old); err != nil { // stale from an earlier failed cleanup
 		return err
 	}
-	return os.Rename(tmp, final)
+	if err := rename(final, old); err != nil { // atomic: same directory
+		return err
+	}
+	swapping = true
+	if err := rename(tmp, final); err != nil {
+		if rerr := rename(old, final); rerr != nil {
+			return fmt.Errorf("replacing %s failed (%v) and restoring failed (%v): your previous data is in %s and the new copy in %s",
+				final, err, rerr, old, tmp)
+		}
+		os.RemoveAll(tmp) // old data is back in place; tmp is just a duplicate
+		return err
+	}
+	os.RemoveAll(old) // best effort; a stale one is swept on the next Copy
+	return nil
+}
+
+// sweep cleans up after an interrupted Copy: every .steamalt-tmp-* is
+// removed; a .steamalt-old-<id> is removed when <id> exists, otherwise (crash
+// between the two swap renames) it is restored as <id>.
+func sweep(dstDir string) {
+	entries, err := os.ReadDir(dstDir)
+	if err != nil {
+		return
+	}
+	for _, e := range entries {
+		name := e.Name()
+		switch {
+		case strings.HasPrefix(name, tmpPrefix):
+			os.RemoveAll(filepath.Join(dstDir, name))
+		case strings.HasPrefix(name, oldPrefix):
+			id := strings.TrimPrefix(name, oldPrefix)
+			if !isNumeric(id) {
+				continue
+			}
+			oldPath, final := filepath.Join(dstDir, name), filepath.Join(dstDir, id)
+			if pathExists(final) {
+				os.RemoveAll(oldPath)
+			} else {
+				rename(oldPath, final)
+			}
+		}
+	}
 }
 
 // copyTree copies src to dst like Python's copytree+copy2: modes and mtimes

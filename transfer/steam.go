@@ -78,15 +78,32 @@ type linuxSteam struct{ procDir string }
 
 func (l linuxSteam) Running() (bool, error) { return runningIn(l.procDir), nil }
 
-// Close runs `steam -shutdown`; Steam handles it asynchronously.
+// Close runs `steam -shutdown` (or the Flatpak equivalent); Steam handles it
+// asynchronously.
 func (linuxSteam) Close() error {
-	cmd := exec.Command("steam", "-shutdown")
+	cmd, err := shutdownCmd(exec.LookPath)
+	if err != nil {
+		return err
+	}
 	hide(cmd)
 	if err := cmd.Start(); err != nil {
 		return err
 	}
 	go cmd.Wait() // reap the child
 	return nil
+}
+
+// shutdownCmd picks the command that asks Steam to quit, without running it:
+// `steam` if on PATH, else Flatpak Steam via `flatpak run`. lookPath is
+// exec.LookPath in production.
+func shutdownCmd(lookPath func(string) (string, error)) (*exec.Cmd, error) {
+	if _, err := lookPath("steam"); err == nil {
+		return exec.Command("steam", "-shutdown"), nil
+	}
+	if _, err := lookPath("flatpak"); err == nil {
+		return exec.Command("flatpak", "run", "com.valvesoftware.Steam", "-shutdown"), nil
+	}
+	return nil, errors.New("could not find steam or flatpak on PATH: close Steam manually")
 }
 
 // runningIn scans procDir/*/comm for an exact `steam` or `steam.exe`. comm is
