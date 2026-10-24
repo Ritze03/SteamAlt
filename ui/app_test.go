@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -441,17 +442,179 @@ func TestCopyReportsPerGameErrors(t *testing.T) {
 	a, root, fake := newTestApp(t)
 	a.dst.Selected = 3
 	a.onDest()
-	checkedSet(a, "620", "413150")
+	checkedSet(a, "620", "367520")
 	// Break one source after listing: its folder is gone when the copy runs.
-	if err := os.RemoveAll(filepath.Join(steam.UserdataDir(root, "1000"), "413150")); err != nil {
+	if err := os.RemoveAll(filepath.Join(steam.UserdataDir(root, "1000"), "367520")); err != nil {
 		t.Fatal(err)
 	}
 	copyThroughModals(t, a, fake)
-	if !a.msgBad || !strings.HasPrefix(a.msg, "1 of 2 games failed. 413150:") {
+	if !a.msgBad || !strings.HasPrefix(a.msg, "1 of 2 games failed. Hollow Knight:") {
 		t.Errorf("msg = %q bad=%v", a.msg, a.msgBad)
 	}
 	if _, err := os.Stat(filepath.Join(steam.UserdataDir(root, "3000"), "620")); err != nil {
 		t.Errorf("the good game was not copied: %v", err)
+	}
+}
+
+// newStoreApp is newTestApp with a caller-supplied store handler and no waiting:
+// Alice is loaded and her name lookups are (probably) still in flight.
+func newStoreApp(t *testing.T, h http.HandlerFunc) (*App, *httptest.Server) {
+	t.Helper()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, "config"))
+	t.Setenv("XDG_CACHE_HOME", filepath.Join(home, "cache"))
+	srv := httptest.NewServer(h)
+	t.Cleanup(srv.Close)
+	lk := lookup.New(t.TempDir())
+	lk.StoreURL = srv.URL
+	lk.AvatarURL = srv.URL + "/"
+	a := NewApp(nil, &transfer.Fake{}, lk)
+	a.load(steamRoot(t))
+	t.Cleanup(a.Shutdown)
+	return a, srv
+}
+
+// realNames is every row showing a real (non-fallback) name.
+func realNames(a *App) bool {
+	for _, r := range a.rows {
+		if _, ok := a.nameMap[r.id]; !ok || a.fallback[r.id] {
+			return false
+		}
+	}
+	return true
+}
+
+// B1 regression: switching the source cancels the running lookups; the ids they
+// had not finished must not stick as "App <id>" for the session.
+func TestNamesSurviveSourceSwitch(t *testing.T) {
+	a, _ := newStoreApp(t, func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(300 * time.Millisecond)
+		id := r.URL.Query().Get("appids")
+		fmt.Fprintf(w, `{%q:{"success":true,"data":{"name":"Real %s"}}}`, id, id)
+	})
+	// Alice's lookups are in flight: switch to Bob and back.
+	a.drain()
+	a.src.Selected = 1
+	a.onSource()
+	time.Sleep(20 * time.Millisecond)
+	a.src.Selected = 0
+	a.onSource()
+
+	waitApp(t, a, "real names", func() bool { return realNames(a) })
+	for id, want := range map[string]string{"620": "Portal 2", "367520": "Real 367520", "413150": "Real 413150"} {
+		if got, ok := a.displayName(id); got != want || !ok {
+			t.Errorf("name of %s = %q (resolved %v), want %q", id, got, ok, want)
+		}
+	}
+	if len(a.fallback) != 0 {
+		t.Errorf("fallback flags left: %v", a.fallback)
+	}
+}
+
+// A fallback is final to look at but unknown to setSource, and never beats a real name.
+func TestFallbackNameRules(t *testing.T) {
+	a, _, _ := newTestApp(t)
+	a.setName("777", "Real 777")
+	a.setName("777", lookup.FallbackName("777")) // stale fallback
+	if n, ok := a.displayName("777"); n != "Real 777" || !ok || a.fallback["777"] {
+		t.Fatalf("stale fallback overwrote the real name: %q resolved %v fallback %v", n, ok, a.fallback["777"])
+	}
+
+	a.setName("888", lookup.FallbackName("888"))
+	if n, ok := a.displayName("888"); n != "App 888" || !ok || !a.fallback["888"] {
+		t.Fatalf("fallback: %q resolved %v flagged %v (want final but flagged)", n, ok, a.fallback["888"])
+	}
+	a.setName("888", "Real 888")
+	if n, _ := a.displayName("888"); n != "Real 888" || a.fallback["888"] {
+		t.Fatalf("real name must win and clear the flag: %q flagged %v", n, a.fallback["888"])
+	}
+}
+
+// A lookup that failed transiently (offline, 5xx) is asked again on the next source change.
+func TestFallbackIsRetriedOnNextSource(t *testing.T) {
+	var up atomic.Bool
+	a, _ := newStoreApp(t, func(w http.ResponseWriter, r *http.Request) {
+		if !up.Load() {
+			http.Error(w, "down", http.StatusServiceUnavailable)
+			return
+		}
+		id := r.URL.Query().Get("appids")
+		fmt.Fprintf(w, `{%q:{"success":true,"data":{"name":"Real %s"}}}`, id, id)
+	})
+	waitApp(t, a, "fallbacks", func() bool { return a.fallback["367520"] && a.fallback["413150"] })
+	if n, ok := a.displayName("367520"); n != "App 367520" || !ok {
+		t.Fatalf("offline name = %q resolved %v", n, ok)
+	}
+	up.Store(true)
+	a.onSource() // same account again: re-lists and re-asks
+	waitApp(t, a, "real names", func() bool { return realNames(a) })
+	if n, _ := a.displayName("367520"); n != "Real 367520" {
+		t.Fatalf("retried name = %q", n)
+	}
+}
+
+// N2: closing the window mid-copy cancels it and waits for transfer.Copy to clean up.
+func TestShutdownCancelsCopyAndLeavesNoTmp(t *testing.T) {
+	a, root, _ := newTestApp(t)
+	big := filepath.Join(steam.UserdataDir(root, "1000"), "367520", "big")
+	if err := os.MkdirAll(big, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 6000; i++ {
+		if err := os.WriteFile(filepath.Join(big, fmt.Sprintf("f%05d", i)), []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	a.setSource()
+	a.dst.Selected = 3 // Carol
+	a.onDest()
+	checkedSet(a, "367520")
+	a.startCopy()
+
+	dstDir := steam.UserdataDir(root, "3000")
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) { // let the copy get going
+		if m, _ := filepath.Glob(filepath.Join(dstDir, ".steamalt-tmp-*")); len(m) > 0 {
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
+
+	done := make(chan struct{})
+	go func() { a.Shutdown(); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(6 * time.Second):
+		t.Fatal("Shutdown did not return")
+	}
+	select {
+	case <-a.copyDone:
+	default:
+		t.Error("Shutdown returned while the copy goroutine was still running")
+	}
+	if m, _ := filepath.Glob(filepath.Join(dstDir, ".steamalt-tmp-*")); len(m) != 0 {
+		t.Errorf("tmp left behind: %v", m)
+	}
+	if _, err := os.Stat(filepath.Join(dstDir, "367520")); err == nil {
+		t.Log("copy finished before the cancel landed (machine too fast); tmp check still holds")
+	}
+}
+
+func TestShutdownWithoutCopy(t *testing.T) {
+	a, _, _ := newTestApp(t)
+	a.Shutdown()
+}
+
+func TestEllipsize(t *testing.T) {
+	for _, c := range []struct {
+		in   string
+		n    int
+		want string
+	}{{"short", 24, "short"}, {strings.Repeat("a", 24), 24, strings.Repeat("a", 24)}, {strings.Repeat("é", 30), 24, strings.Repeat("é", 23) + "…"}} {
+		if got := ellipsize(c.in, c.n); got != c.want {
+			t.Errorf("ellipsize(%q, %d) = %q, want %q", c.in, c.n, got, c.want)
+		}
 	}
 }
 

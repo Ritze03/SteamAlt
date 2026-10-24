@@ -35,6 +35,7 @@ const (
 	maxConcurrent    = 4
 	maxNameBody      = 4 << 20 // cap on an appdetails response
 	maxAvatarBody    = 2 << 20 // cap on an avatar download
+	maxAvatarPx      = 2048    // cap on an avatar's width and height
 	namesFile        = "names.json"
 	zeroHash         = "0000000000000000000000000000000000000000"
 )
@@ -137,7 +138,10 @@ func (c *Client) httpClient() *http.Client {
 
 // Names resolves app ids to names. local is tier 1 (appID -> name from
 // appmanifests). onName(id, name) is called exactly once per distinct id, with
-// "App <id>" for anything unresolved (including non-numeric ids).
+// "App <id>" for anything unresolved (including non-numeric ids) - unless ctx is
+// cancelled: from then on no further onName calls are made (the caller has given
+// up on this batch, and a fallback delivered then would be taken for a real
+// answer). Ids already reported before the cancel stay reported.
 //
 // Local and cache hits are reported synchronously, before any network
 // request, from the calling goroutine. Network results are reported from
@@ -189,15 +193,19 @@ func (c *Client) Names(ctx context.Context, ids []string, local map[string]strin
 		sem         = make(chan struct{}, maxConcurrent)
 	)
 	for _, id := range pending {
-		if rateLimited.Load() || ctx.Err() != nil {
+		if ctx.Err() != nil {
+			break
+		}
+		if rateLimited.Load() {
 			onName(id, FallbackName(id))
 			continue
 		}
 		select {
 		case sem <- struct{}{}:
 		case <-ctx.Done():
-			onName(id, FallbackName(id))
-			continue
+		}
+		if ctx.Err() != nil {
+			break
 		}
 		if rateLimited.Load() { // set while we waited for a slot
 			<-sem
@@ -220,6 +228,8 @@ func (c *Client) Names(ctx context.Context, ids []string, local map[string]strin
 				fresh[id] = cacheEntry{OK: false}
 				resMu.Unlock()
 				onName(id, FallbackName(id))
+			case ctx.Err() != nil:
+				// cancelled while in flight: the caller no longer wants an answer
 			default:
 				if errors.Is(err, errRate) {
 					rateLimited.Store(true)
@@ -296,6 +306,20 @@ func (c *Client) fetchName(ctx context.Context, id string) (string, error) {
 	return strings.TrimSpace(data.Name), nil
 }
 
+// decodeAvatar decodes b, but rejects an image wider or taller than
+// maxAvatarPx before allocating its pixels (a small file can declare a huge image).
+func decodeAvatar(b []byte) (image.Image, error) {
+	cfg, _, err := image.DecodeConfig(bytes.NewReader(b))
+	if err != nil {
+		return nil, err
+	}
+	if cfg.Width > maxAvatarPx || cfg.Height > maxAvatarPx {
+		return nil, fmt.Errorf("lookup: avatar %dx%d exceeds %d px", cfg.Width, cfg.Height, maxAvatarPx)
+	}
+	img, _, err := image.Decode(bytes.NewReader(b))
+	return img, err
+}
+
 // Avatar returns the decoded avatar for a 40-hex hash, from
 // <CacheDir>/avatars/<hash>.jpg or from the network (cached on success). An
 // invalid or all-zero hash returns an error without any request. The caller
@@ -308,7 +332,7 @@ func (c *Client) Avatar(ctx context.Context, hash string) (image.Image, error) {
 	path := filepath.Join(c.CacheDir, "avatars", hash+".jpg")
 
 	if b, err := os.ReadFile(path); err == nil {
-		if img, _, err := image.Decode(bytes.NewReader(b)); err == nil {
+		if img, err := decodeAvatar(b); err == nil {
 			return img, nil
 		}
 		os.Remove(path) // corrupt cache entry; refetch
@@ -330,7 +354,7 @@ func (c *Client) Avatar(ctx context.Context, hash string) (image.Image, error) {
 	if err != nil {
 		return nil, err
 	}
-	img, _, err := image.Decode(bytes.NewReader(b))
+	img, err := decodeAvatar(b)
 	if err != nil {
 		return nil, err
 	}

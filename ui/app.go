@@ -94,13 +94,17 @@ type App struct {
 	accounts  []steam.Account
 	installed map[string]string      // appmanifest names of root
 	avatars   map[string]image.Image // by avatar hash
-	nameMap   map[string]string      // app id -> resolved name
+	nameMap   map[string]string      // app id -> shown name (a real one, or the "App <id>" fallback)
+	fallback  map[string]bool        // ids whose nameMap entry is only the fallback: final to look at, unknown to setSource
 
 	rootCancel  context.CancelFunc // stops the avatar fetches of the previous root
 	namesCancel context.CancelFunc // stops the name lookups of the previous source
+	copyCancel  context.CancelFunc // stops the running copy (Shutdown)
+	copyDone    chan struct{}      // closed when the copy goroutine has returned
 
-	// Account pickers. dst.Items[0] is a "Select account" placeholder, so account
-	// i of a.accounts is dst index i+1 and index 0 means no destination.
+	// Account pickers. dst.Items[0] is a "Select account" placeholder (drawn DIM,
+	// dst.Placeholder), so account i of a.accounts is dst index i+1 and index 0
+	// means no destination.
 	src, dst     Dropdown
 	srcAv, dstAv Avatar
 
@@ -149,6 +153,7 @@ func NewApp(invalidate func(), s transfer.Steam, names *lookup.Client) *App {
 		th:         NewTheme(),
 		avatars:    map[string]image.Image{},
 		nameMap:    map[string]string{},
+		fallback:   map[string]bool{},
 		closeWait:  30 * time.Second,
 		closePoll:  500 * time.Millisecond,
 	}
@@ -161,6 +166,7 @@ func NewApp(invalidate func(), s transfer.Steam, names *lookup.Client) *App {
 	a.pathM = Modal{Title: "Steam folder", ConfirmLabel: "Save", CancelLabel: "Cancel", Width: 460}
 	a.src.Selected = -1
 	a.dst.Items = []DropdownItem{{Name: "Select account"}}
+	a.dst.Placeholder = true
 	return a
 }
 
@@ -352,7 +358,7 @@ func (a *App) setSource() {
 	var need []string
 	for _, g := range gs {
 		a.rows = append(a.rows, &gameRow{id: g.AppID, overwrites: g.Overwrites})
-		if _, known := a.nameMap[g.AppID]; !known {
+		if _, known := a.nameMap[g.AppID]; !known || a.fallback[g.AppID] {
 			need = append(need, g.AppID)
 		}
 	}
@@ -363,11 +369,28 @@ func (a *App) setSource() {
 	a.namesCancel = cancel
 	lk, local := a.lk, a.installed
 	go lk.Names(ctx, need, local, func(id, name string) {
-		a.post(func() { a.nameMap[id] = name })
+		a.post(func() { a.setName(id, name) })
 	})
 }
 
-// displayName is the resolved name, or the fallback while the lookup runs.
+// setName stores a looked-up name (UI goroutine). The "App <id>" fallback only
+// fills a gap: it is final for display but flagged in a.fallback, so the next
+// setSource asks again (offline, 429, cancelled). It never overwrites a real name;
+// a real name always wins and clears the flag.
+func (a *App) setName(id, name string) {
+	if name == lookup.FallbackName(id) {
+		if _, have := a.nameMap[id]; !have {
+			a.nameMap[id] = name
+			a.fallback[id] = true
+		}
+		return
+	}
+	a.nameMap[id] = name
+	delete(a.fallback, id)
+}
+
+// displayName is the name to show; resolved is false only while the lookup still
+// runs (the fallback shown DIM). A settled fallback counts as resolved here.
 func (a *App) displayName(id string) (name string, resolved bool) {
 	if n, ok := a.nameMap[id]; ok {
 		return n, true
@@ -422,6 +445,14 @@ func (a *App) overwriteCount() int {
 func (a *App) canCopy() bool {
 	src, ok := a.srcAcc()
 	return ok && a.root != "" && !a.copying && a.dstID() != "" && a.dstID() != src.ID && len(a.checkedIDs()) > 0
+}
+
+// ellipsize cuts s to at most n runes, ending in "…" when it was longer.
+func ellipsize(s string, n int) string {
+	if utf8.RuneCountInString(s) <= n {
+		return s
+	}
+	return string([]rune(s)[:n-1]) + "…"
 }
 
 func gamesLabel(n int) string {
@@ -514,8 +545,12 @@ func (a *App) startCopy() {
 	a.msg = ""
 	a.status = fmt.Sprintf("Copying 0/%d…", len(ids))
 	srcDir, dstDir := steam.UserdataDir(a.root, src.ID), steam.UserdataDir(a.root, dst.ID)
+	ctx, cancel := context.WithCancel(context.Background())
+	finished := make(chan struct{})
+	a.copyCancel, a.copyDone = cancel, finished
 	go func() {
-		errs := transfer.Copy(context.Background(), srcDir, dstDir, ids, func(done, total int, id string) {
+		defer close(finished)
+		errs := transfer.Copy(ctx, srcDir, dstDir, ids, func(done, total int, id string) {
 			a.post(func() {
 				a.progress = float32(done) / float32(total)
 				name, _ := a.displayName(id)
@@ -524,6 +559,26 @@ func (a *App) startCopy() {
 		})
 		a.post(func() { a.finishCopy(len(ids), errs) })
 	}()
+}
+
+// Shutdown stops the background work for a closing window: it cancels the running
+// copy and waits up to 5 s for it to return, so transfer.Copy removes its
+// .steamalt-tmp-<id> folder before the process exits. Call it on the UI goroutine.
+func (a *App) Shutdown() {
+	if a.rootCancel != nil {
+		a.rootCancel()
+	}
+	if a.namesCancel != nil {
+		a.namesCancel()
+	}
+	if a.copyCancel == nil {
+		return
+	}
+	a.copyCancel()
+	select {
+	case <-a.copyDone:
+	case <-time.After(5 * time.Second):
+	}
 }
 
 // finishCopy shows the result, then re-lists the games (fresh overwrite marks,
@@ -538,7 +593,8 @@ func (a *App) finishCopy(n int, errs map[string]error) {
 			ids = append(ids, id)
 		}
 		sort.Strings(ids)
-		a.setMsg(fmt.Sprintf("%d of %d games failed. %s: %v", len(errs), n, ids[0], errs[ids[0]]), true)
+		name, _ := a.displayName(ids[0])
+		a.setMsg(fmt.Sprintf("%d of %d games failed. %s: %v", len(errs), n, name, errs[ids[0]]), true)
 	}
 	a.setSource()
 }
@@ -745,8 +801,11 @@ func (a *App) layoutBody(gtx layout.Context) layout.Dimensions {
 			layout.Flexed(1, a.gamesCard),
 		)
 	})
-	if a.copying { // dim the panes like the mockup's 55 % opacity
-		paint.FillShape(gtx.Ops, fade(PANEL, .45), clip.Rect(image.Rectangle{Max: size}).Op())
+	if a.copying {
+		// The mockup dims the panes to 55 % opacity. Gio blends in linear light, so a
+		// 45 % PANEL wash would leave the content near 77 % of its sRGB brightness;
+		// 0.72 lands on about 55 %.
+		paint.FillShape(gtx.Ops, fade(PANEL, .72), clip.Rect(image.Rectangle{Max: size}).Op())
 	}
 	return layout.Dimensions{Size: size}
 }
@@ -871,7 +930,8 @@ func (a *App) layoutFooter(gtx layout.Context) layout.Dimensions {
 			top = a.progressLine
 		} else if txt, col := a.footerMsg(); txt != "" {
 			top = func(gtx layout.Context) layout.Dimensions {
-				return a.th.Label(gtx, Regular, SizeBody, col, txt)
+				// At most 2 lines: a long error must not squeeze the list.
+				return widget.Label{MaxLines: 2, Truncator: "…"}.Layout(gtx, a.th.Shaper, a.th.font(Regular), SizeBody, txt, colorOp(gtx, col))
 			}
 		}
 		children := []layout.FlexChild{}
@@ -955,7 +1015,7 @@ func (a *App) layoutModal(gtx layout.Context) {
 			body = "Existing data for " + who + " in " + dName + " will be overwritten."
 			a.confirmM.ConfirmLabel = "Overwrite & copy"
 		}
-		a.confirmM.Title = fmt.Sprintf("Copy %s from %s → %s?", gamesLabel(n), sName, dName)
+		a.confirmM.Title = fmt.Sprintf("Copy %s from %s → %s?", gamesLabel(n), ellipsize(sName, 24), ellipsize(dName, 24))
 		a.confirmM.Layout(gtx, a.th, dim(body))
 	case modalSteam:
 		a.steamM.Layout(gtx, a.th, dim("Close Steam before copying? Copying while Steam runs can corrupt saves."))
