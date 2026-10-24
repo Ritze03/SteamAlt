@@ -68,22 +68,54 @@ Source: Obsidian note `01 - Projects/02 - AI Coding/Agent Instructions/Graphite 
 - `SELBD`: accent at ~42 % alpha: selection border, pressed state.
 - `HOV`: white at ~5 % alpha: hover wash.
 
+## Fonts
+
+| Font | Use | File (source) | License file |
+| --- | --- | --- | --- |
+| **Geist Mono** Regular (TTF) | All UI text, proportional *and* monospace slots | `GeistMono/GeistMono-Regular.ttf` | `GeistMono/Geist-OFL.txt` (SIL OFL 1.1) |
+| **Geist Mono Nerd Font** Regular (OTF) | Icon glyphs only (fallback after Geist Mono) | `GeistMonoNerdFont/GeistMonoNerdFont-Regular.otf` | `GeistMonoNerdFont/NerdFonts-LICENSE.txt` (Nerd Fonts, OFL 1.1 / MIT) |
+
+- Source folder (Obsidian vault, outside the repo): `01 - Projects/02 - AI Coding/Agent Instructions/assets/`. The font files are **not** in the repo yet; they will be embedded at build time.
+- Font stack: Geist Mono first, the Nerd Font appended as fallback, so text renders from the clean TTF and only icon codepoints (`\uf...`) come from the patched OTF.
+- Monospace everywhere so numbers and readouts line up in columns.
+- Icons are centred on their **ink**, not their advance box (Nerd glyphs sit off-centre).
+
 ## Type & metrics
 
-- Font: **Geist Mono** everywhere (numbers line up in columns).
-- Sizes: Heading 18 · Body 13 · Button 13 · Small 11 · Mono 12.
+- Sizes: Heading 18 · Body 13 · Button 13 · Small 11 · Mono 12 · page pill 12.5 · segmented control 14.
 - Corner radius 7 on widgets, 5 on checkboxes, full pill for segmented controls.
 - Button padding 9 × 5, standard control height 22.
 - Spacing: **8 px** everywhere between cards and between columns; the outer panel margin (8 px) is the top gap. 4 px between rows inside a card.
+
+## Titles & text colours
+
+| What | Colour | Style |
+| --- | --- | --- |
+| Card / category title | `ACCENT` | UPPERCASE, 12, bold |
+| Dashboard tile title | `ACCENT` | same as card title, truncates with ... (never wraps) |
+| App wordmark (top bar) | `ACCENT` | 16, bold |
+| Body text | `TEXT` | global text colour override |
+| Secondary / muted values | `TEXT_DIM` / `DIM` | |
+| Captions, hints | `TEXT_FAINT` / `FAINT` | |
+| Text-field placeholder | `DIM` | set explicitly, otherwise the global override paints it like real text |
+| Hyperlinks | `ACCENT` | |
+| Text selection | `SEL` fill, `SELBD` border | |
+
+## App chrome
+
+- **Top bar:** `HEAD` fill, 4 px margin (5 px bottom), 30 px tall tab buttons, fill only (no outline), radius 4, hand cursor. Selected tab = `SEL` fill with the icon in `SELBD`; hover = `BTN` fill. Icon-only tabs are 30 × 30.
+- **Top bar layout ("Modern"):** wordmark left, then a 1 × 18 px `BORDER` divider, then the current-page pill (full radius, `SEL` fill, `SELBD` border, `TEXT`; reserves the widest title's width so the tabs don't jump), then icon tabs centred, settings/help tabs right-aligned.
+- **Status bar:** `PANEL2` fill at the bottom. State shown by colour (`GOOD` connected, `DANGER` disconnected, `WARN` connecting), so it reads in icon-only mode too.
+- **Content area:** `PANEL`, 8 px margin on all sides.
 
 ## Components
 
 - **Buttons:** *primary* = solid accent, dark bold text · *secondary* = `BTN` fill, `BTNBD` border · *danger* = transparent, red text, faint red border.
 - **Widget states:** resting `BTN`/`BTNBD` · hover: accent border + `HOV` wash · pressed: `SELBD` border · open (menus): `FIELD`.
-- **Card / category:** bordered frame with a title in accent, UPPERCASE, 12, bold. Groups related controls.
+- **Card / category:** transparent fill (the panel shows through), 1 px `BORDER` stroke, radius 7, 6 px inner margin; accent title, 4 px gap, 4 px between rows. Groups related controls.
 - **Checkbox:** 18 px rounded box, accent-filled with a white check when on, 1.5 px steel outline when off. The whole row (box + label) is the click target, with a hover wash. Disabled = everything one step dimmer.
 - **Radio:** same family, a circle with a white centre dot. Groups wrap onto further lines when narrow.
-- **Segmented control** (one of a few short options): pill container (`FIELD`, `BORDER`, 3 px inset), equal-width segments, the selected one a pill with `SEL` fill + `SELBD` border, the others `TEXT_DIM` with a hover wash.
+- **Segmented control** (one of a few short options): 32 px tall pill container (`FIELD`, `BORDER`, 3 px inset), equal-width segments, the selected one a pill with `SEL` fill + `SELBD` border, the others `TEXT_DIM` with a hover wash.
 - **Slider row:** label in the left half; in the right half a slider plus a **fixed-width value field (72 px)** pinned right. The slider shrinks, the value field never jumps when digits change. Percentages always show one decimal.
 - **Modals:** dim backdrop that swallows clicks + centred window; primary (or danger) + Cancel. Enter confirms, Esc / backdrop click cancels.
 
@@ -102,6 +134,6 @@ Guidance for the upcoming Go + Gio (`gioui.org`) rewrite; nothing here exists in
 
 - Tokens live in one Go file (planned: a `theme` package / `theme.go`) as `color.NRGBA` values. Call sites never use literal colours.
 - Units: the spec's px values are meant as dp (sizes) and sp (text).
-- Clip per pane with `clip.Rect` / `clip.RRect` ops, scoped with `.Push(gtx.Ops).Pop()`. Width comes from `gtx.Constraints`; build layouts with `layout.Flex` / `layout.Stack` / `layout.Inset`. There is no absolute positioning.
-- Geist Mono is embedded via `go:embed` and loaded with `gioui.org/font/opentype` into the shaper's collection.
+- Clip per pane with `clip.Rect` / `clip.RRect` ops, scoped with `.Push(gtx.Ops).Pop()`. Width comes from `gtx.Constraints`; build layouts with `layout.Flex` / `layout.Stack` / `layout.Inset`. Do NOT position with absolute coordinates (`op.Offset` exists, but use `layout.Flex`/`Stack`/`Inset` and constraints instead). *Why:* absolute placement defeats the nested-pane width rule.
+- Geist Mono is embedded via `go:embed` and loaded with `gioui.org/font/opentype` into the shaper's collection (see Fonts for the files). Gio's loader needs static TTF/OTF, which these are.
 - Keep the headless render test at a few widths; Gio can render headless via `gioui.org/gpu/headless`.
