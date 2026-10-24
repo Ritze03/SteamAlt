@@ -38,9 +38,14 @@
             <h2>Features</h2>
             <div class="features-grid">
                 <div class="feature-card">
-                    <i class="fas fa-user-friends"></i>
-                    <h3>Account Switching</h3>
-                    <p>Easily select source and destination accounts from detected Steam profiles</p>
+                    <i class="fas fa-gamepad"></i>
+                    <h3>Per-Game Selection</h3>
+                    <p>Pick exactly which games to copy, shown with their real names</p>
+                </div>
+                <div class="feature-card">
+                    <i class="fas fa-desktop"></i>
+                    <h3>Linux and Windows</h3>
+                    <p>Native builds for both, with Steam detected automatically</p>
                 </div>
                 <div class="feature-card">
                     <i class="fas fa-images"></i>
@@ -48,9 +53,19 @@
                     <p>Visual confirmation with profile avatars to prevent mistakes</p>
                 </div>
                 <div class="feature-card">
+                    <i class="fas fa-power-off"></i>
+                    <h3>Steam Client Check</h3>
+                    <p>Detects a running Steam client and can close it for you before copying</p>
+                </div>
+                <div class="feature-card">
                     <i class="fas fa-shield-alt"></i>
-                    <h3>Safety Checks</h3>
-                    <p>Automatically detects running Steam client and warns before overwriting data</p>
+                    <h3>Safe Copy</h3>
+                    <p>If a copy fails or is cancelled, the existing data in the destination is kept</p>
+                </div>
+                <div class="feature-card">
+                    <i class="fas fa-folder-open"></i>
+                    <h3>Custom Steam Folder</h3>
+                    <p>Steam installed somewhere unusual? Set the folder once and it is remembered</p>
                 </div>
             </div>
         </section>
@@ -71,7 +86,7 @@
                     <div class="step-number">2</div>
                     <div class="step-content">
                         <h3>Select Accounts</h3>
-                        <p>Choose your source account (where data is copied from) and destination account (where data is copied to)</p>
+                        <p>Choose your source account (where data is copied from), tick the games you want, and choose the destination account (where data is copied to)</p>
                     </div>
                 </div>
                 <div class="step">
@@ -79,7 +94,7 @@
                     <div class="step-content">
                         <h3>Confirm and Copy</h3>
                         <p>Review the confirmation dialog and proceed. SteamAlt will handle the rest!</p>
-                        <p class="note">Note: Steam should be closed during this process for best results.</p>
+                        <p class="note">Note: Steam should be closed during this process. If it is running, SteamAlt offers to close it for you.</p>
                     </div>
                 </div>
             </div>
@@ -93,7 +108,7 @@
                     <p>Yes, SteamAlt only copies files between Steam userdata folders and doesn't modify any Steam system files. However:</p>
                     <ul>
                         <li>Always back up important data before making changes</li>
-                        <li>Close Steam before running the tool</li>
+                        <li>Close Steam before copying (SteamAlt can do it for you)</li>
                         <li>Make sure you've selected the correct accounts</li>
                     </ul>
                 </div>
@@ -101,7 +116,7 @@
             <div class="faq-item">
                 <h3 class="faq-question">What data gets copied?</h3>
                 <div class="faq-answer">
-                    <p>SteamAlt copies all numeric folders in the userdata directory, which typically includes:</p>
+                    <p>SteamAlt copies the games you select, i.e. their numeric folders in the account's userdata directory, which typically contain:</p>
                     <ul>
                         <li>Game save files</li>
                         <li>Configuration files</li>
@@ -111,14 +126,13 @@
                 </div>
             </div>
             <div class="faq-item">
-                <h3 class="faq-question">The tool can't find my Steam userdata folder</h3>
+                <h3 class="faq-question">The tool can't find my Steam folder</h3>
                 <div class="faq-answer">
-                    <p>If SteamAlt can't automatically detect your Steam installation:</p>
+                    <p>If SteamAlt can't automatically detect your Steam installation, a "Steam folder" window opens by itself. You can also open it any time with the "Change" button in the footer:</p>
                     <ol>
-                        <li>Click "Cancel" on the error message</li>
-                        <li>You'll be prompted to manually select your userdata folder</li>
-                        <li>Navigate to where Steam is installed (typically in Program Files or AppData)</li>
-                        <li>Select the "userdata" folder</li>
+                        <li>Paste the path of your Steam folder (the one that contains "userdata" and "steamapps")</li>
+                        <li>SteamAlt checks the path as you type</li>
+                        <li>Save it; the folder is remembered for next time</li>
                     </ol>
                 </div>
             </div>
