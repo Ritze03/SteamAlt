@@ -72,17 +72,31 @@ Source: Obsidian note `01 - Projects/02 - AI Coding/Agent Instructions/Graphite 
 
 | Font | Use | File (source) | License file |
 | --- | --- | --- | --- |
-| **Geist Mono** Regular (TTF) | All UI text, proportional *and* monospace slots | `GeistMono/GeistMono-Regular.ttf` | `GeistMono/Geist-OFL.txt` (SIL OFL 1.1) |
-| **Geist Mono Nerd Font** Regular (OTF) | Icon glyphs only (fallback after Geist Mono) | `GeistMonoNerdFont/GeistMonoNerdFont-Regular.otf` | `GeistMonoNerdFont/NerdFonts-LICENSE.txt` (Nerd Fonts, OFL 1.1 / MIT) |
+| **Geist** Regular / Medium / Bold (TTF) | All UI text, proportional slot (default) | `Geist/Geist-Regular.ttf`, `Geist/Geist-Medium.ttf`, `Geist/Geist-Bold.ttf` | `Geist/Geist-OFL.txt` (SIL OFL 1.1) |
+| **Geist Mono** Regular (TTF) | Monospace slot only: values that must line up or be read exactly | `GeistMono/GeistMono-Regular.ttf` | `GeistMono/Geist-OFL.txt` (SIL OFL 1.1) |
+| **Geist Mono Nerd Font** Regular (OTF) | Icon glyphs only (fallback after Geist and Geist Mono) | `GeistMonoNerdFont/GeistMonoNerdFont-Regular.otf` | `GeistMonoNerdFont/NerdFonts-LICENSE.txt` (Nerd Fonts, OFL 1.1 / MIT) |
 
 - Source folder (Obsidian vault, outside the repo): `01 - Projects/02 - AI Coding/Agent Instructions/assets/`. The font files are **not** in the repo yet; they will be embedded at build time.
-- Font stack: Geist Mono first, the Nerd Font appended as fallback, so text renders from the clean TTF and only icon codepoints (`\uf...`) come from the patched OTF.
-- Monospace everywhere so numbers and readouts line up in columns.
+- Font stacks: **proportional** = Geist, then Nerd Font fallback; **monospace** = Geist Mono, then Nerd Font fallback. Text renders from the clean TTFs and only icon codepoints (`\uf...`) come from the patched OTF.
+- Both fonts are OFL and bundled with the app, never taken from the system.
 - Icons are centred on their **ink**, not their advance box (Nerd glyphs sit off-centre).
+
+### Proportional vs. monospace
+
+*Why:* proportional text is more readable and compact for prose and UI labels; monospace is for alignment and exactness.
+
+- **Geist (proportional) is the default for all UI text:** titles, section and card titles, labels, body text, descriptions, buttons, menu items, tabs, pills/badges, tooltips, dialogs.
+- **Geist Mono only where characters must line up or be read exactly:**
+  - version numbers, commit hashes and IDs
+  - file paths and URLs shown as values
+  - logs and terminal/command output
+  - code, inline and in blocks, including command snippets
+  - numeric columns that must align (tables of figures, live-updating numbers that would jitter in a proportional font)
+- **Geist Mono Nerd Font** stays the icon-glyph fallback for both.
 
 ## Type & metrics
 
-- Sizes: Heading 18 · Body 13 · Button 13 · Small 11 · Mono 12 · page pill 12.5 · segmented control 14.
+- Sizes: Heading 18 · Body 13 · Button 13 · Small 11 · Mono 12 (monospace slot only: code, paths, IDs, logs, aligned numbers) · page pill 12.5 · segmented control 14.
 - Corner radius 7 on widgets, 5 on checkboxes, full pill for segmented controls.
 - Button padding 9 × 5, standard control height 22.
 - Spacing: **8 px** everywhere between cards and between columns; the outer panel margin (8 px) is the top gap. 4 px between rows inside a card.
@@ -116,7 +130,7 @@ Source: Obsidian note `01 - Projects/02 - AI Coding/Agent Instructions/Graphite 
 - **Checkbox:** 18 px rounded box, accent-filled with a white check when on, 1.5 px steel outline when off. The whole row (box + label) is the click target, with a hover wash. Disabled = everything one step dimmer.
 - **Radio:** same family, a circle with a white centre dot. Groups wrap onto further lines when narrow.
 - **Segmented control** (one of a few short options): 32 px tall pill container (`FIELD`, `BORDER`, 3 px inset), equal-width segments, the selected one a pill with `SEL` fill + `SELBD` border, the others `TEXT_DIM` with a hover wash.
-- **Slider row:** label in the left half; in the right half a slider plus a **fixed-width value field (72 px)** pinned right. The slider shrinks, the value field never jumps when digits change. Percentages always show one decimal.
+- **Slider row:** label in the left half; in the right half a slider plus a **fixed-width value field (72 px, monospace digits)** pinned right. The slider shrinks, the value field never jumps when digits change. Percentages always show one decimal.
 - **Modals:** dim backdrop that swallows clicks + centred window; primary (or danger) + Cancel. Enter confirms, Esc / backdrop click cancels.
 
 ## Content conventions
@@ -135,5 +149,5 @@ Guidance for the upcoming Go + Gio (`gioui.org`) rewrite; nothing here exists in
 - Tokens live in one Go file (planned: a `theme` package / `theme.go`) as `color.NRGBA` values. Call sites never use literal colours.
 - Units: the spec's px values are meant as dp (sizes) and sp (text).
 - Clip per pane with `clip.Rect` / `clip.RRect` ops, scoped with `.Push(gtx.Ops).Pop()`. Width comes from `gtx.Constraints`; build layouts with `layout.Flex` / `layout.Stack` / `layout.Inset`. Do NOT position with absolute coordinates (`op.Offset` exists, but use `layout.Flex`/`Stack`/`Inset` and constraints instead). *Why:* absolute placement defeats the nested-pane width rule.
-- Geist Mono is embedded via `go:embed` and loaded with `gioui.org/font/opentype` into the shaper's collection (see Fonts for the files). Gio's loader needs static TTF/OTF, which these are.
+- Geist (Regular/Medium/Bold) and Geist Mono are embedded via `go:embed` and loaded with `gioui.org/font/opentype` into the shaper's collection (see Fonts for the files). Gio's loader needs static TTF/OTF, which these are. Register Geist as the default (proportional) face; use Geist Mono only for the cases listed under "Proportional vs. monospace".
 - Keep the headless render test at a few widths; Gio can render headless via `gioui.org/gpu/headless`.
