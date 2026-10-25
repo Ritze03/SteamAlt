@@ -633,43 +633,54 @@ func (t *TitleBar) Layout(gtx layout.Context, th *Theme) layout.Dimensions {
 	w := gtx.Constraints.Max.X
 	rect := image.Rect(0, 0, w, h)
 	fillRect(gtx, rect, HEAD)
-	fillRect(gtx, image.Rect(0, h-max(1, gtx.Dp(1)), w, h), BORDER)
+	bw := max(1, gtx.Dp(1))
+	fillRect(gtx, image.Rect(0, h-bw, w, h), BORDER)
+	// Centre the row on the HEAD fill (everything above the border line). Why:
+	// Flex sizes itself to its tallest child, so inside a plain Inset it sat at
+	// the top of the bar and every element rode ~4 dp above the bar's centre.
 	g := gtx
-	g.Constraints = layout.Exact(image.Pt(w, h))
-	layout.Inset{Left: Gap, Right: Gap, Top: 4, Bottom: 5}.Layout(g, func(gtx layout.Context) layout.Dimensions {
-		gtx.Constraints.Min = image.Point{}
-		return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
-			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-				if t.Logo == nil {
-					return layout.Dimensions{}
-				}
-				s := gtx.Dp(20)
-				gtx.Constraints = layout.Exact(image.Pt(s, s))
-				d := widget.Image{Src: t.cache.get(t.Logo), Fit: widget.Contain, Position: layout.Center}.Layout(gtx)
-				return layout.Dimensions{Size: image.Pt(d.Size.X+gtx.Dp(Gap), d.Size.Y)}
-			}),
-			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-				return th.Line(gtx, Bold, SizeWord, ACCENT, t.Wordmark)
-			}),
-			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-				if t.Pill == "" {
-					return layout.Dimensions{}
-				}
-				return layout.Inset{Left: Gap + 2, Right: Gap + 2}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-					s := image.Pt(1, gtx.Dp(18))
-					fillRect(gtx, image.Rectangle{Max: s}, BORDER)
-					return layout.Dimensions{Size: s}
-				})
-			}),
-			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-				if t.Pill == "" {
-					return layout.Dimensions{}
-				}
-				return pill(gtx, th, t.Pill)
-			}),
-		)
+	g.Constraints = layout.Exact(image.Pt(w, h-bw))
+	layout.Inset{Left: Gap, Right: Gap}.Layout(g, func(gtx layout.Context) layout.Dimensions {
+		return layout.W.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+			gtx.Constraints.Min = image.Point{} // W keeps Min.Y; children must not stretch
+			return t.row(gtx, th)
+		})
 	})
 	return layout.Dimensions{Size: image.Pt(w, h)}
+}
+
+// row lays out logo, wordmark, divider and pill, each centred on the row's height.
+func (t *TitleBar) row(gtx layout.Context, th *Theme) layout.Dimensions {
+	return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			if t.Logo == nil {
+				return layout.Dimensions{}
+			}
+			s := gtx.Dp(20)
+			gtx.Constraints = layout.Exact(image.Pt(s, s))
+			d := widget.Image{Src: t.cache.get(t.Logo), Fit: widget.Contain, Position: layout.Center}.Layout(gtx)
+			return layout.Dimensions{Size: image.Pt(d.Size.X+gtx.Dp(Gap), d.Size.Y)}
+		}),
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			return th.Line(gtx, Bold, SizeWord, ACCENT, t.Wordmark)
+		}),
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			if t.Pill == "" {
+				return layout.Dimensions{}
+			}
+			return layout.Inset{Left: Gap + 2, Right: Gap + 2}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+				s := image.Pt(1, gtx.Dp(18))
+				fillRect(gtx, image.Rectangle{Max: s}, BORDER)
+				return layout.Dimensions{Size: s}
+			})
+		}),
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			if t.Pill == "" {
+				return layout.Dimensions{}
+			}
+			return pill(gtx, th, t.Pill)
+		}),
+	)
 }
 
 // pill draws text in a fully rounded SEL/SELBD capsule.

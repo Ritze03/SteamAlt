@@ -566,3 +566,70 @@ func TestTextFieldFocus(t *testing.T) {
 		t.Fatal("click in field padding did not focus the editor")
 	}
 }
+
+// TestTitleBarCentred renders the TitleBar alone and requires the ink of the
+// logo, wordmark, divider and pill to share the HEAD fill's vertical centre.
+func TestTitleBarCentred(t *testing.T) {
+	th := NewTheme()
+	logo := image.NewRGBA(image.Rect(0, 0, 32, 32))
+	for i := range logo.Pix {
+		logo.Pix[i] = 0xFF // opaque white: its ink is the whole 20 dp box
+	}
+	for _, scale := range []float32{1, 1.25, 1.5, 2} {
+		size := image.Pt(int(400*scale), int(40*scale))
+		tb := TitleBar{Wordmark: "SteamAlt", Pill: "Userdata copier", Logo: logo}
+		ops := new(op.Ops)
+		gtx := newCtx(ops, new(input.Router), size)
+		gtx.Metric = unit.Metric{PxPerDp: scale, PxPerSp: scale}
+		tb.Layout(gtx, th)
+		img := shot(t, renderer(t, size), ops)
+		save(t, fmt.Sprintf("titlebar-%gx", scale), img)
+
+		head := rgba(HEAD)
+		bot := size.Y - 1 - max(1, gtx.Dp(1)) // last HEAD row
+		ink := func(x, y int) bool {
+			c := img.RGBAAt(x, y)
+			d := func(a, b uint8) int { return max(int(a)-int(b), int(b)-int(a)) }
+			return d(c.R, head.R)+d(c.G, head.G)+d(c.B, head.B) > 12
+		}
+		// Split the bar into elements by runs of inked columns.
+		type seg struct{ x0, x1 int }
+		var segs []seg
+		for x := 0; x < size.X; x++ {
+			hit := false
+			for y := 0; y <= bot && !hit; y++ {
+				hit = ink(x, y)
+			}
+			if !hit {
+				continue
+			}
+			if n := len(segs); n > 0 && x-segs[n-1].x1 <= gtx.Dp(4) {
+				segs[n-1].x1 = x
+			} else {
+				segs = append(segs, seg{x, x})
+			}
+		}
+		if len(segs) != 4 {
+			t.Fatalf("%gx: want 4 elements (logo, wordmark, divider, pill), got %d: %v", scale, len(segs), segs)
+		}
+		want := float32(bot) / 2
+		for i, s := range segs {
+			top, bottom := -1, -1
+			for y := 0; y <= bot; y++ {
+				for x := s.x0; x <= s.x1; x++ {
+					if ink(x, y) {
+						if top < 0 {
+							top = y
+						}
+						bottom = y
+						break
+					}
+				}
+			}
+			got := float32(top+bottom) / 2
+			if d := got - want; d > scale || d < -scale {
+				t.Errorf("%gx: element %d (x %d..%d) ink centre %.1f, bar centre %.1f", scale, i, s.x0, s.x1, got, want)
+			}
+		}
+	}
+}
