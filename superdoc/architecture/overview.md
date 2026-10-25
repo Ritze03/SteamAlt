@@ -27,6 +27,9 @@ SteamAlt copies Steam game data (saves/settings) between Steam accounts on one m
 
 Building: `./build.sh` writes `dist/SteamAlt-Linux` and `dist/SteamAlt.exe`. Tests: [Testing rules](testing.md).
 
+Installer: `install.sh` (ritz-get spec v1, `# ritz-get-spec: 1`) builds `build/SteamAlt` with the same `go build` flags as `build.sh` (cgo on) and symlinks it to `~/.local/bin/SteamAlt`; `SteamAlt.desktop` is the optional menu entry ritz-get installs; the root `icon.png` (1024x1024, required by the spec) and `icon.svg` are the ritz-get icon. Only the per-program section of `install.sh` is ours, the rest is ritz-get's template.
+*Why:* ritz-get installs every program by building it from a git clone (the spec forbids prebuilt downloads), so a Linux release binary is not enough. `check_tools` lists Gio's pkg-config libraries so a missing header gives exit 3 with package hints, not a cgo error halfway through the build. The build goes to `build/.SteamAlt.new` and is `mv`'d over `build/SteamAlt` so a running instance keeps its old binary.
+
 ## Where to look for X
 
 - Showing a game's name for an app id (API call, local appmanifest lookup, caching, fallback): [Steam AppID to name](../knowledge/steam-appid-to-name.md)

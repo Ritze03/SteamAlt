@@ -11,14 +11,23 @@ https://ritze03.github.io/SteamAlt/
 - Safe copy: if a copy fails or is cancelled, the destination's existing data is kept
 - Custom Steam folder setting, saved between runs
 
-### Linux Installation
+## Linux Installation
 ```bash
-sudo echo
-wget https://github.com/Ritze03/SteamAlt/releases/download/release/SteamAlt-Linux -O ~/Downloads/SteamAlt-Linux
-sudo cp ~/Downloads/SteamAlt-Linux /usr/bin/steamalt
-sudo chmod +x /usr/bin/steamalt
-steamalt
+ritz-get install SteamAlt
+SteamAlt
 ```
+
+Without ritz-get:
+```bash
+git clone https://github.com/Ritze03/SteamAlt.git
+cd SteamAlt
+./install.sh --install
+SteamAlt
+```
+
+To remove it again: `ritz-get remove SteamAlt` or `./install.sh --remove`.
+
+The installer builds from source, so it needs Go, a C compiler and the Gio development headers (see [Building from source](#building-from-source)); if something is missing it lists the packages to install. A prebuilt `SteamAlt-Linux` binary is also attached to the GitHub releases.
 
 ## Building from source
 
