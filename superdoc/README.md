@@ -9,4 +9,4 @@
 - [Styling Guide (Graphite)](ui/STYLING-GUIDE.md)
 - [Steam AppID to name](knowledge/steam-appid-to-name.md)
 - [Terminology](meta/TERMINOLOGY.md)
-- Rules for agents: `claude-instructions/documentation.md`, `claude-instructions/documentation-version-policy.md`
+- Rules for agents: `claude-instructions/documentation.md`, `claude-instructions/documentation-version-policy.md`, `claude-instructions/changelog.md`
